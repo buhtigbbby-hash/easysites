@@ -114,29 +114,27 @@ function updateDisplay() {
 }
 
 function handleKeyInput(key) {
+    if (!resultModal.classList.contains('hidden')) {
+        if (key === 'Enter' || key === 'enter') resetToInput();
+        return;
+    }
+    
     if (key >= '0' && key <= '9') {
         if (currentInput.length < 3) {
             currentInput.push(key);
             updateDisplay();
+            if (currentInput.length === 3) {
+                checkInvoice(currentInput.join(''), true);
+            }
         }
-    } else if (key === 'clear' || key === 'Backspace') {
+    } else if (key === 'backspace' || key === 'Backspace') {
         if (currentInput.length > 0) {
             currentInput.pop();
             updateDisplay();
         }
-    } else if (key === 'enter' || key === 'Enter') {
-        if (!resultModal.classList.contains('hidden')) {
-            resetToInput();
-        } else {
-            // View Keypad is active and we press Enter
-            if (currentInput.length === 3) {
-                checkInvoice(currentInput.join(''), true);
-            } else {
-                const container = document.querySelector('.display-box');
-                container.style.animation = 'none';
-                setTimeout(() => container.style.animation = 'bounce 0.4s', 10);
-            }
-        }
+    } else if (key === 'clear') {
+        currentInput = [];
+        updateDisplay();
     }
 }
 
@@ -212,12 +210,22 @@ function stopScanning() {
     }
 }
 
+let lastScannedCode = "";
+let scanCooldown = false;
+
 function onScanSuccess(decodedText) {
+    if (!resultModal.classList.contains('hidden')) return;
+    if (scanCooldown || decodedText === lastScannedCode) return;
+    
+    lastScannedCode = decodedText;
+    scanCooldown = true;
+    setTimeout(() => { scanCooldown = false; lastScannedCode = ""; }, 2500);
+
     if (decodedText.length >= 10 && /^[A-Z]{2}\d{8}/.test(decodedText)) {
         const invNumber = decodedText.substring(0, 10);
         checkInvoice(invNumber, false);
     } else {
-        alert("掃描失敗，這似乎不是有效的發票左側 QR Code！\n\n您讀到的是：" + decodedText);
+        showToast("掃描失敗：非有效條碼", "lose");
     }
 }
 
@@ -308,16 +316,28 @@ function checkInvoice(invoiceStr, isManual3Digits = false) {
         prizeName.innerText = winName;
         prizeAmount.innerText = winAmount.includes('NT$') ? winAmount : `NT$ ${winAmount}`;
         playSound(true);
+        resultModal.classList.remove('hidden');
     } else {
-        prizeInfoCard.classList.add('lose');
-        prizeStatus.innerText = "下次再努力...";
-        prizeName.innerText = "未中獎";
-        prizeAmount.innerText = "運氣累積中";
         playSound(false);
+        showToast("❌ 未中獎：" + (isManual3Digits ? currentInput.join('') : numStr), "lose");
+        if (isManual3Digits) {
+            currentInput = [];
+            updateDisplay();
+        }
     }
-    
-    // Show Modal
-    resultModal.classList.remove('hidden');
+}
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerText = message;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('fadeOut');
+        toast.addEventListener('animationend', () => toast.remove());
+    }, 1500);
 }
 
 // 初始化

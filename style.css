@@ -558,3 +558,13 @@ footer {
     cursor: pointer;
     font-weight: bold;
 }
+
+/* Toast Notifications */
+.toast-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.toast { background: rgba(30, 41, 59, 0.95); color: white; padding: 14px 28px; border-radius: 50px; font-weight: 700; font-size: 1.1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: toastIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); display: flex; align-items: center; justify-content: center; font-family: var(--font-primary); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(8px);}
+.toast.lose { background: rgba(71, 85, 105, 0.95); }
+.toast.info { background: rgba(59, 130, 246, 0.95); }
+.toast.win { background: rgba(16, 185, 129, 0.95); }
+.toast.fadeOut { animation: toastOut 0.3s forwards; }
+@keyframes toastIn { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes toastOut { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-20px); opacity: 0; } }

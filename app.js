@@ -110,32 +110,27 @@ function updateDisplay() {
 }
 
 function handleKeyInput(key) {
-    // 限制處理合法字元
+    if (!resultCard.classList.contains('hidden')) {
+        if (key === 'Enter' || key === 'enter') resetToInput();
+        return;
+    }
+    
     if (key >= '0' && key <= '9') {
         if (currentInput.length < 3) {
             currentInput.push(key);
             updateDisplay();
+            if (currentInput.length === 3) {
+                doManualCheck();
+            }
         }
-    } else if (key === 'clear' || key === 'Backspace') {
+    } else if (key === 'backspace' || key === 'Backspace') {
         if (currentInput.length > 0) {
             currentInput.pop();
             updateDisplay();
         }
-    } else if (key === 'enter' || key === 'Enter') {
-        if (!resultCard.classList.contains('hidden')) {
-            // 目前處於成績畫面，按 Enter 回到輸入畫面
-            resetToInput();
-        } else {
-            // 目前處於輸入畫面，按 Enter 送出對獎
-            if (currentInput.length === 3) {
-                doManualCheck();
-            } else {
-                // Flash alert via UI
-                const container = document.querySelector('.display-box');
-                container.style.animation = 'none';
-                setTimeout(() => container.style.animation = 'bounce 0.4s', 10);
-            }
-        }
+    } else if (key === 'clear') {
+        currentInput = [];
+        updateDisplay();
     }
 }
 
@@ -171,37 +166,31 @@ document.addEventListener('keydown', (e) => {
 
 function doManualCheck() {
     const input3 = currentInput.join('');
-    // Ensure all 3 digits received
     if (input3.length !== 3) return;
     
     const periodData = invoicePeriods[currentPeriod];
     let matched6th = false;
     let possibleBigPrize = false;
     
-    for (let first of periodData.first) {
-        if (first.endsWith(input3)) matched6th = true;
-    }
-    for (let add of periodData.additional) {
-        if (add === input3) matched6th = true;
-    }
+    for (let first of periodData.first) { if (first.endsWith(input3)) matched6th = true; }
+    for (let add of periodData.additional) { if (add === input3) matched6th = true; }
+    if (periodData.super.endsWith(input3) || periodData.special.endsWith(input3)) possibleBigPrize = true;
     
-    if (periodData.super.endsWith(input3) || periodData.special.endsWith(input3)) {
-        possibleBigPrize = true;
-    }
+    let winLevel = -1; let winAmount = 0; let winName = "未中獎";
+    if (matched6th) { winLevel = 7; winName = "至少中六獎"; winAmount = "200+ (請核對完整號碼)"; }
+    else if (possibleBigPrize) { winLevel = 1; winName = "可能中大獎"; winAmount = "請核對完整號碼"; }
     
-    // Switch Views
-    actionWrapper.style.display = 'none';
-    resultCard.classList.remove('hidden');
-    
-    resultInvoiceNumber.innerText = `***-**${input3}`;
-    resultPeriod.innerText = periodData.name;
-    
-    if (matched6th) {
-        updateResultUI(7, "至少中六獎", "200+ (請核對完整號碼)");
-    } else if (possibleBigPrize) {
-        updateResultUI(1, "可能中大獎", "請核對完整號碼");
+    if (winLevel >= 0) {
+        actionWrapper.style.display = 'none';
+        resultCard.classList.remove('hidden');
+        resultInvoiceNumber.innerText = `***-**${input3}`;
+        resultPeriod.innerText = periodData.name;
+        updateResultUI(winLevel, winName, winAmount);
     } else {
-        updateResultUI(-1, "未中獎", "運氣累積中");
+        playSound(false);
+        showToast("❌ 未中獎：" + input3, "lose");
+        currentInput = [];
+        updateDisplay();
     }
 }
 
@@ -251,16 +240,22 @@ function stopScanning() {
     }
 }
 
+let lastScannedCode = "";
+let scanCooldown = false;
+
 function onScanSuccess(decodedText) {
-    stopScanning();
+    if (!resultCard.classList.contains('hidden')) return; // 當有中獎畫面擋住時，暫停處理新掃描
+    if (scanCooldown || decodedText === lastScannedCode) return; // 冷卻防抖
+    
+    lastScannedCode = decodedText;
+    scanCooldown = true;
+    setTimeout(() => { scanCooldown = false; lastScannedCode = ""; }, 2500);
+
     if (decodedText.length >= 10 && /^[A-Z]{2}\d{8}/.test(decodedText)) {
         const invNumber = decodedText.substring(0, 10);
-        actionWrapper.style.display = 'none';
-        resultCard.classList.remove('hidden');
         checkInvoice(invNumber);
     } else {
-        alert("掃描失敗，請對準發票『左側的 QR Code』！\n\n您讀到的是：" + decodedText);
-        startScanning();
+        showToast("掃描失敗：非有效條碼", "lose");
     }
 }
 
@@ -306,8 +301,27 @@ function checkInvoice(invoiceStr) {
             }
         }
     }
-    
-    updateResultUI(winLevel, winName, winAmount);
+    if (winLevel >= 0) {
+        actionWrapper.style.display = 'none';
+        resultCard.classList.remove('hidden');
+        updateResultUI(winLevel, winName, winAmount);
+    } else {
+        playSound(false);
+        showToast("❌ 未中獎：" + numStr, "lose");
+    }
+}
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerText = message;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('fadeOut');
+        toast.addEventListener('animationend', () => toast.remove());
+    }, 1500);
 }
 
 // ================ 音效產生器 (Web Audio API) ================
