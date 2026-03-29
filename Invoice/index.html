@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>統一發票兌獎助手</title>
+    <meta name="description" content="極速掃描電子發票 QR Code 並自動對獎，支援最新三期發票。">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    
+    <!-- Audio generated natively via Web Audio API -->
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo-area">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="var(--primary-color)"/>
+                    <path d="M2 17L12 22L22 17M2 12L12 17L22 12" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <h1>發票兌獎助手</h1>
+            </div>
+            <p class="subtitle">Scan & Win 快速對獎</p>
+        </header>
+
+        <main>
+            <section class="control-panel glass-card">
+                <label for="period-select" class="control-label">開獎期別</label>
+                <div class="select-wrapper">
+                    <select id="period-select">
+                        <option value="11411">114年 11-12月 (最新)</option>
+                        <option value="11409">114年 09-10月</option>
+                        <option value="11407">114年 07-08月</option>
+                    </select>
+                </div>
+            </section>
+
+            <section class="period-info glass-card" id="period-info">
+                <div class="info-header">
+                    <h3>當期中獎號碼預覽</h3>
+                    <a id="mof-link" href="https://invoice.etax.nat.gov.tw/" target="_blank" class="mof-link">財政部官網對獎 ↗</a>
+                </div>
+                <div class="numbers-display">
+                    <div class="number-row"><span class="prize-tag super-tag">特別獎</span><span class="num-val" id="info-super">-</span></div>
+                    <div class="number-row"><span class="prize-tag special-tag">特獎</span><span class="num-val" id="info-special">-</span></div>
+                    <div class="number-row"><span class="prize-tag first-tag">頭獎</span><span class="num-val" id="info-first">-</span></div>
+                    <div class="number-row"><span class="prize-tag other-tag">二獎</span><span class="num-val text-sm">與頭獎末 7 碼相同</span></div>
+                    <div class="number-row"><span class="prize-tag other-tag">三獎</span><span class="num-val text-sm">與頭獎末 6 碼相同</span></div>
+                    <div class="number-row"><span class="prize-tag other-tag">四獎</span><span class="num-val text-sm">與頭獎末 5 碼相同</span></div>
+                    <div class="number-row"><span class="prize-tag other-tag">五獎</span><span class="num-val text-sm">與頭獎末 4 碼相同</span></div>
+                    <div class="number-row"><span class="prize-tag other-tag">六獎</span><span class="num-val text-sm">與頭獎末 3 碼相同</span></div>
+                    <div class="number-row"><span class="prize-tag other-tag">增開六獎</span><span class="num-val" id="info-additional">無</span></div>
+                </div>
+            </section>
+
+            <div class="action-sections-wrapper" id="action-wrapper">
+                <section class="scanner-section glass-card" id="scanner-section">
+                    <div class="scanner-header">
+                        <h2>掃描 QR Code</h2>
+                        <span class="status-badge" id="camera-status">相機未開啟</span>
+                    </div>
+                    <div id="reader-container" class="reader-container">
+                        <div id="reader"></div>
+                        <div class="scanner-overlay">
+                            <div class="scan-line"></div>
+                        </div>
+                    </div>
+                    <p class="scan-hint">請將發票左側的 QR Code 對準掃描框</p>
+                    
+                    <div class="controls">
+                        <button id="start-btn" class="btn primary-btn">啟動相機</button>
+                        <button id="stop-btn" class="btn secondary-btn" style="display: none;">停止掃描</button>
+                    </div>
+                </section>
+
+                <section class="manual-entry-section glass-card" id="manual-section">
+                    <div class="scanner-header">
+                        <h2>手動輸入兌獎</h2>
+                    </div>
+                    <div class="virtual-keypad">
+                        <div class="display-box">
+                            <span id="digit-0" class="digit-box active"></span>
+                            <span id="digit-1" class="digit-box"></span>
+                            <span id="digit-2" class="digit-box"></span>
+                        </div>
+                        <div class="keypad-grid" id="keypad">
+                            <button class="key-btn" data-key="1">1</button>
+                            <button class="key-btn" data-key="2">2</button>
+                            <button class="key-btn" data-key="3">3</button>
+                            <button class="key-btn" data-key="4">4</button>
+                            <button class="key-btn" data-key="5">5</button>
+                            <button class="key-btn" data-key="6">6</button>
+                            <button class="key-btn" data-key="7">7</button>
+                            <button class="key-btn" data-key="8">8</button>
+                            <button class="key-btn" data-key="9">9</button>
+                            <button class="key-btn action-key" data-key="clear">清空</button>
+                            <button class="key-btn" data-key="0">0</button>
+                            <button class="key-btn action-key" data-key="backspace">⌫</button>
+                        </div>
+                    </div>
+                    <p class="scan-hint">可使用實體鍵盤數字鍵 或 點擊上方按鈕，輸入末 3 碼自動比對</p>
+                </section>
+            </div>
+
+            <section class="result-section glass-card hidden" id="result-card">
+                <div class="result-header">
+                    <h2 id="result-invoice-number">AB-12345678</h2>
+                    <span class="period-badge" id="result-period">114年11-12月</span>
+                </div>
+                <div class="prize-display" id="prize-display">
+                    <div class="prize-status" id="prize-status">中獎啦！</div>
+                    <div class="prize-name" id="prize-name">頭獎</div>
+                    <div class="prize-amount" id="prize-amount">NT$ 200,000</div>
+                </div>
+                <button id="next-scan-btn" class="btn outline-btn">返回列表繼續對獎 (或按 Enter)</button>
+            </section>
+        </main>
+        
+        <!-- Toast Container -->
+        <div id="toast-container" class="toast-container"></div>
+
+        <footer>
+            <p>&copy; 2026 發票兌獎小助手 | 對獎結果及號碼僅供參考，實際以財政部公告為準。</p>
+        </footer>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
