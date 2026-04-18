@@ -1,33 +1,63 @@
 // app.js
 
-// Mocked data for recent 3 periods 
-const invoicePeriods = {
-    "11411": {
-        name: "114年11-12月",
-        super: "29731662",
-        special: "98073356",
-        first: ["31782240", "28377033", "62402170"],
-        additional: []
-    },
-    "11409": {
-        name: "114年09-10月",
-        super: "27602226",
-        special: "04043757",
-        first: ["95040042", "58066022", "62890507"],
-        additional: []
-    },
-    "11407": {
-        name: "114年07-08月",
-        super: "21981893",
-        special: "39597522",
-        first: ["09505831", "54219897", "17469638"],
-        additional: []
-    }
-};
+// Dynamic periods object
+let invoicePeriods = {};
 
 let html5QrCode;
 let isScanning = false;
-let currentPeriod = "11411";
+let currentPeriod = "";
+
+async function fetchInvoicePeriods() {
+    try {
+        const proxyUrl = "https://api.allorigins.win/raw?url=";
+        const targetUrl = encodeURIComponent("https://invoice.etax.nat.gov.tw/invoice.xml");
+        
+        periodSelect.innerHTML = '<option value="">連線載入最新資料中...</option>';
+        
+        const response = await fetch(proxyUrl + targetUrl);
+        if (!response.ok) throw new Error("Network response not ok");
+        const xmlText = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "application/xml");
+        
+        const items = Array.from(xmlDoc.querySelectorAll("item")).slice(0, 3);
+        periodSelect.innerHTML = '';
+        
+        items.forEach((item, index) => {
+            const title = item.querySelector("title").textContent.trim();
+            const link = item.querySelector("link").textContent.trim();
+            const periodId = link.split("_")[1] || title.replace(/\D/g, '').substring(0, 5); 
+            const desc = item.querySelector("description").textContent;
+            
+            const superMatches = desc.match(/特別獎：(\d{8})/);
+            const specialMatches = desc.match(/特獎：(\d{8})/);
+            const firstMatches = desc.match(/頭獎：([\d、]+)/);
+            const addMatches = desc.match(/增開六獎：([\d、]+)/);
+            
+            invoicePeriods[periodId] = {
+                name: title,
+                super: superMatches ? superMatches[1] : "",
+                special: specialMatches ? specialMatches[1] : "",
+                first: firstMatches ? firstMatches[1].split("、") : [],
+                additional: addMatches ? addMatches[1].split("、") : []
+            };
+            
+            if (index === 0) currentPeriod = periodId;
+            
+            const option = document.createElement("option");
+            option.value = periodId;
+            option.textContent = title + (index === 0 ? " (最新)" : "");
+            periodSelect.appendChild(option);
+        });
+        
+        periodSelect.value = currentPeriod;
+        updatePeriodInfo();
+    } catch (err) {
+        console.error("Fetch invoice data failed:", err);
+        showToast("錯誤：無法載入最新開獎號碼", "lose");
+        periodSelect.innerHTML = '<option value="">請檢查網路或稍後再試</option>';
+    }
+}
 
 // DOM Elements
 const startBtn = document.getElementById('start-btn');
@@ -58,15 +88,16 @@ const infoAdditional = document.getElementById('info-additional');
 const mofLink = document.getElementById('mof-link');
 
 function updatePeriodInfo() {
+    if (!currentPeriod || !invoicePeriods[currentPeriod]) return;
     const data = invoicePeriods[currentPeriod];
-    infoSuper.innerText = data.super;
-    infoSpecial.innerText = data.special;
-    infoFirst.innerText = data.first.join('、');
-    infoAdditional.innerText = data.additional.length > 0 ? data.additional.join('、') : "無";
+    infoSuper.innerText = data.super || "-";
+    infoSpecial.innerText = data.special || "-";
+    infoFirst.innerText = (data.first && data.first.length > 0) ? data.first.join('、') : "-";
+    infoAdditional.innerText = (data.additional && data.additional.length > 0) ? data.additional.join('、') : "無";
 }
 
 function initApp() {
-    updatePeriodInfo();
+    fetchInvoicePeriods();
     updateDisplay();
 }
 
@@ -168,27 +199,39 @@ function doManualCheck() {
     const input3 = currentInput.join('');
     if (input3.length !== 3) return;
     
-    const periodData = invoicePeriods[currentPeriod];
-    let matched6th = false;
-    let possibleBigPrize = false;
+    let matchedResults = [];
     
-    for (let first of periodData.first) { if (first.endsWith(input3)) matched6th = true; }
-    for (let add of periodData.additional) { if (add === input3) matched6th = true; }
-    if (periodData.super.endsWith(input3) || periodData.special.endsWith(input3)) possibleBigPrize = true;
+    for (const periodId in invoicePeriods) {
+        const periodData = invoicePeriods[periodId];
+        let matched6th = false;
+        let possibleBigPrize = false;
+        
+        for (let first of periodData.first) { if (first.endsWith(input3)) matched6th = true; }
+        for (let add of periodData.additional) { if (add === input3) matched6th = true; }
+        if (periodData.super.endsWith(input3) || periodData.special.endsWith(input3)) possibleBigPrize = true;
+        
+        if (possibleBigPrize) {
+            matchedResults.push({ periodData, winLevel: 1, winName: "可能中大獎", winAmount: "核對完整號碼" });
+        } else if (matched6th) {
+            matchedResults.push({ periodData, winLevel: 7, winName: "至少中六獎", winAmount: "200+" });
+        }
+    }
     
-    let winLevel = -1; let winAmount = 0; let winName = "未中獎";
-    if (matched6th) { winLevel = 7; winName = "至少中六獎"; winAmount = "200+ (請核對完整號碼)"; }
-    else if (possibleBigPrize) { winLevel = 1; winName = "可能中大獎"; winAmount = "請核對完整號碼"; }
-    
-    if (winLevel >= 0) {
+    if (matchedResults.length > 0) {
         actionWrapper.style.display = 'none';
         resultCard.classList.remove('hidden');
         resultInvoiceNumber.innerText = `***-**${input3}`;
-        resultPeriod.innerText = periodData.name;
-        updateResultUI(winLevel, winName, winAmount);
+        
+        matchedResults.sort((a,b) => a.winLevel - b.winLevel);
+        const bestMatch = matchedResults[0];
+        
+        const shortNames = matchedResults.map(m => `${m.periodData.name.substring(4)}(${m.winName})`).join('、');
+        resultPeriod.innerText = matchedResults.length > 1 ? `3期內可能為: ${shortNames}` : bestMatch.periodData.name;
+        
+        updateResultUI(bestMatch.winLevel, bestMatch.winName, bestMatch.winAmount);
     } else {
         playSound(false);
-        showToast("❌ 未中獎：" + input3, "lose");
+        showToast("❌ 3期內皆未中獎：" + input3, "lose");
         currentInput = [];
         updateDisplay();
     }
@@ -262,52 +305,65 @@ function onScanSuccess(decodedText) {
 function checkInvoice(invoiceStr) {
     const letters = invoiceStr.substring(0, 2);
     const numStr = invoiceStr.substring(2, 10);
-    const periodData = invoicePeriods[currentPeriod];
     
     resultInvoiceNumber.innerText = `${letters}-${numStr}`;
-    resultPeriod.innerText = periodData.name;
     
-    let winLevel = -1;
-    let winAmount = 0;
-    let winName = "未中獎";
+    let matchedResults = [];
+    const prizeAmounts = ["200,000", "40,000", "10,000", "4,000", "1,000", "200"];
+    const prizeNames = ["頭獎", "二獎", "三獎", "四獎", "五獎", "六獎"];
     
-    if (numStr === periodData.super) {
-        winLevel = 0; winName = "特別獎"; winAmount = "10,000,000";
-    }
-    else if (numStr === periodData.special) {
-        winLevel = 1; winName = "特獎"; winAmount = "2,000,000";
-    }
-    else {
-        const prizeAmounts = ["200,000", "40,000", "10,000", "4,000", "1,000", "200"];
-        const prizeNames = ["頭獎", "二獎", "三獎", "四獎", "五獎", "六獎"];
-        for (let first of periodData.first) {
-            for (let matchLen = 8; matchLen >= 3; matchLen--) {
-                const tailStr = first.substring(8 - matchLen);
-                if (numStr.endsWith(tailStr)) {
-                    const level = 2 + (8 - matchLen);
-                    if (winLevel === -1 || level < winLevel) {
-                        winLevel = level;
-                        winAmount = prizeAmounts[level - 2];
-                        winName = prizeNames[level - 2];
+    for (const periodId in invoicePeriods) {
+        const periodData = invoicePeriods[periodId];
+        let winLevel = -1;
+        let winAmount = 0;
+        let winName = "未中獎";
+        
+        if (numStr === periodData.super) {
+            winLevel = 0; winName = "特別獎"; winAmount = "10,000,000";
+        }
+        else if (numStr === periodData.special) {
+            winLevel = 1; winName = "特獎"; winAmount = "2,000,000";
+        }
+        else {
+            for (let first of periodData.first) {
+                for (let matchLen = 8; matchLen >= 3; matchLen--) {
+                    const tailStr = first.substring(8 - matchLen);
+                    if (numStr.endsWith(tailStr)) {
+                        const level = 2 + (8 - matchLen);
+                        if (winLevel === -1 || level < winLevel) {
+                            winLevel = level;
+                            winAmount = prizeAmounts[level - 2];
+                            winName = prizeNames[level - 2];
+                        }
+                    }
+                }
+            }
+            if (winLevel === -1 || winLevel > 7) {
+                for (let add of periodData.additional) {
+                    if (numStr.endsWith(add)) {
+                        winLevel = 7; winName = "增開六獎"; winAmount = "200";
                     }
                 }
             }
         }
-        if (winLevel === -1 || winLevel > 7) {
-            for (let add of periodData.additional) {
-                if (numStr.endsWith(add)) {
-                    winLevel = 7; winName = "增開六獎"; winAmount = "200";
-                }
-            }
+        if (winLevel >= 0) {
+            matchedResults.push({ periodData, winLevel, winName, winAmount });
         }
     }
-    if (winLevel >= 0) {
+    
+    if (matchedResults.length > 0) {
+        matchedResults.sort((a,b) => a.winLevel - b.winLevel);
+        const bestMatch = matchedResults[0];
+        
+        const shortNames = matchedResults.map(m => `${m.periodData.name.substring(4)}(${m.winName})`).join('、');
+        resultPeriod.innerText = matchedResults.length > 1 ? `3期內可能為: ${shortNames}` : bestMatch.periodData.name;
+        
         actionWrapper.style.display = 'none';
         resultCard.classList.remove('hidden');
-        updateResultUI(winLevel, winName, winAmount);
+        updateResultUI(bestMatch.winLevel, bestMatch.winName, bestMatch.winAmount);
     } else {
         playSound(false);
-        showToast("❌ 未中獎：" + numStr, "lose");
+        showToast("❌ 3期內皆未中獎：" + numStr, "lose");
     }
 }
 
