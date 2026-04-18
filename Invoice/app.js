@@ -7,23 +7,94 @@ let html5QrCode;
 let isScanning = false;
 let currentPeriod = "";
 
+const CACHE_KEY = "invoicePeriodsCacheV4";
+const FETCH_TIME_KEY = "invoiceFetchTime";
+const PROXIES = [
+    (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    (url) => `https://api.codetabs.com/v1/proxy?quest=${url}`,
+    (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`                 
+];
+
+function shouldFetchNewData() {
+    const lastFetch = localStorage.getItem(FETCH_TIME_KEY);
+    if (!lastFetch) return true;
+    
+    // 現在時間
+    const nowUTC = new Date();
+    // 轉換為台北時間 (UTC+8) 用作換算基準
+    let twTime = new Date(nowUTC.getTime() + 8 * 3600000); 
+    
+    let y = twTime.getUTCFullYear();
+    let m = twTime.getUTCMonth();
+    let d = twTime.getUTCDate();
+    let h = twTime.getUTCHours();
+    
+    // 每個月的 25號早上 6點 (台北時間) 為界
+    if (d < 25 || (d === 25 && h < 6)) {
+        m -= 1;
+        if (m < 0) { m = 11; y -= 1; }
+    }
+    
+    // 把目標時間轉回 UTC 的確切毫秒 (台北的25號6點 = UTC的24號22點)
+    let cutoffUTC = Date.UTC(y, m, 24, 22, 0, 0, 0); 
+    
+    return parseInt(lastFetch, 10) < cutoffUTC;
+}
+
+async function fetchFromProxies(targetUrl) {
+    for (let proxy of PROXIES) {
+        try {
+            const res = await fetch(proxy(targetUrl), { cache: 'no-store' });
+            if (!res.ok) continue;
+            const text = await res.text();
+            if (text.includes("<?xml") || text.includes("<rss")) {
+                return text;
+            }
+        } catch (e) {
+            console.warn("Proxy failed:", e);
+        }
+    }
+    throw new Error("All proxies failed");
+}
+
+function renderPeriodsData() {
+    periodSelect.innerHTML = '';
+    const keys = Object.keys(invoicePeriods).sort((a,b) => b.localeCompare(a)); 
+    keys.forEach((periodId, index) => {
+        const title = invoicePeriods[periodId].name;
+        const option = document.createElement("option");
+        option.value = periodId;
+        option.textContent = title + (index === 0 ? " (最新)" : "");
+        periodSelect.appendChild(option);
+        
+        if (index === 0 && !currentPeriod) currentPeriod = periodId;
+    });
+    if(!currentPeriod && keys.length > 0) currentPeriod = keys[0];
+    periodSelect.value = currentPeriod;
+    updatePeriodInfo();
+}
+
 async function fetchInvoicePeriods() {
+    if (!shouldFetchNewData()) {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+            invoicePeriods = JSON.parse(cached);
+            renderPeriodsData();
+            return; // 提早結束，完美利用快取
+        }
+    }
+    
     try {
-        const proxyUrl = "https://api.allorigins.win/raw?url=";
-        const targetUrl = encodeURIComponent("https://invoice.etax.nat.gov.tw/invoice.xml");
+        periodSelect.innerHTML = '<option value="">網路連線載入中...</option>';
+        const xmlText = await fetchFromProxies("https://invoice.etax.nat.gov.tw/invoice.xml");
         
-        periodSelect.innerHTML = '<option value="">連線載入最新資料中...</option>';
-        
-        const response = await fetch(proxyUrl + targetUrl);
-        if (!response.ok) throw new Error("Network response not ok");
-        const xmlText = await response.text();
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(xmlText, "application/xml");
+        const items = Array.from(xmlDoc.querySelectorAll("item")).slice(0, 2);
         
-        const items = Array.from(xmlDoc.querySelectorAll("item")).slice(0, 3);
-        periodSelect.innerHTML = '';
+        invoicePeriods = {};
         
-        items.forEach((item, index) => {
+        items.forEach((item) => {
             const title = item.querySelector("title").textContent.trim();
             const link = item.querySelector("link").textContent.trim();
             const periodId = link.split("_")[1] || title.replace(/\D/g, '').substring(0, 5); 
@@ -41,21 +112,25 @@ async function fetchInvoicePeriods() {
                 first: firstMatches ? firstMatches[1].split("、") : [],
                 additional: addMatches ? addMatches[1].split("、") : []
             };
-            
-            if (index === 0) currentPeriod = periodId;
-            
-            const option = document.createElement("option");
-            option.value = periodId;
-            option.textContent = title + (index === 0 ? " (最新)" : "");
-            periodSelect.appendChild(option);
         });
         
-        periodSelect.value = currentPeriod;
-        updatePeriodInfo();
+        localStorage.setItem(CACHE_KEY, JSON.stringify(invoicePeriods));
+        localStorage.setItem(FETCH_TIME_KEY, Date.now().toString());
+        currentPeriod = ""; 
+        
+        renderPeriodsData();
+        
     } catch (err) {
         console.error("Fetch invoice data failed:", err);
-        showToast("錯誤：無法載入最新開獎號碼", "lose");
-        periodSelect.innerHTML = '<option value="">請檢查網路或稍後再試</option>';
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+            showToast("網路異常，目前顯示離線快取號碼", "info");
+            invoicePeriods = JSON.parse(cached);
+            renderPeriodsData();
+        } else {
+            showToast("錯誤：無法載入最新資料，請檢查網路", "lose");
+            periodSelect.innerHTML = '<option value="">請檢查網路或稍後再試</option>';
+        }
     }
 }
 
@@ -226,12 +301,12 @@ function doManualCheck() {
         const bestMatch = matchedResults[0];
         
         const shortNames = matchedResults.map(m => `${m.periodData.name.substring(4)}(${m.winName})`).join('、');
-        resultPeriod.innerText = matchedResults.length > 1 ? `3期內可能為: ${shortNames}` : bestMatch.periodData.name;
+        resultPeriod.innerText = matchedResults.length > 1 ? `2期內可能為: ${shortNames}` : bestMatch.periodData.name;
         
         updateResultUI(bestMatch.winLevel, bestMatch.winName, bestMatch.winAmount);
     } else {
         playSound(false);
-        showToast("❌ 3期內皆未中獎：" + input3, "lose");
+        showToast("❌ 2期內皆未中獎：" + input3, "lose");
         currentInput = [];
         updateDisplay();
     }
@@ -356,14 +431,14 @@ function checkInvoice(invoiceStr) {
         const bestMatch = matchedResults[0];
         
         const shortNames = matchedResults.map(m => `${m.periodData.name.substring(4)}(${m.winName})`).join('、');
-        resultPeriod.innerText = matchedResults.length > 1 ? `3期內可能為: ${shortNames}` : bestMatch.periodData.name;
+        resultPeriod.innerText = matchedResults.length > 1 ? `2期內可能為: ${shortNames}` : bestMatch.periodData.name;
         
         actionWrapper.style.display = 'none';
         resultCard.classList.remove('hidden');
         updateResultUI(bestMatch.winLevel, bestMatch.winName, bestMatch.winAmount);
     } else {
         playSound(false);
-        showToast("❌ 3期內皆未中獎：" + numStr, "lose");
+        showToast("❌ 2期內皆未中獎：" + numStr, "lose");
     }
 }
 
