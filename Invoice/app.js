@@ -369,7 +369,23 @@ function onScanSuccess(decodedText) {
     scanCooldown = true;
     setTimeout(() => { scanCooldown = false; lastScannedCode = ""; }, 2500);
 
-    if (decodedText.length >= 10 && /^[A-Z]{2}\d{8}/.test(decodedText)) {
+    if (decodedText.length >= 17 && /^[A-Z]{2}\d{8}\d{7}/.test(decodedText)) {
+        const invNumber = decodedText.substring(0, 10);
+        const rocYear = decodedText.substring(10, 13);
+        const rawMonth = parseInt(decodedText.substring(13, 15), 10);
+        
+        const periodMonth = rawMonth % 2 === 0 ? rawMonth - 1 : rawMonth;
+        const periodMonthStr = periodMonth.toString().padStart(2, '0');
+        const targetPeriodId = rocYear + periodMonthStr;
+
+        if (!invoicePeriods[targetPeriodId]) {
+            showToast("🚫 非本期或前期發票", "lose");
+            playPeriodErrorTone();
+            return;
+        }
+
+        checkInvoice(invNumber);
+    } else if (decodedText.length >= 10 && /^[A-Z]{2}\d{8}/.test(decodedText)) {
         const invNumber = decodedText.substring(0, 10);
         checkInvoice(invNumber);
     } else {
@@ -496,6 +512,15 @@ function playSound(isWin) {
         playTone(349.23, 'triangle', 0.4, now + 0.6); // F4
         playTone(329.63, 'sawtooth', 1.0, now + 0.9); // E4
     }
+}
+
+function playPeriodErrorTone() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    // 短促連續三聲低頻警告 (滴-滴-滴)
+    playTone(400, 'square', 0.1, now);
+    playTone(400, 'square', 0.1, now + 0.15);
+    playTone(400, 'square', 0.1, now + 0.30);
 }
 
 function updateResultUI(winLevel, winName, winAmount) {
